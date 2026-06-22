@@ -707,14 +707,12 @@ async def download_single(
     """Download one photo to a temporary file and atomically finalize it."""
     url = select_photo_url(photo)
     if not url:
-        progress.advance(task_id)
         return {"status": "failed", "name": target_name, "error": "No HTTPS image URL"}
 
     filepath = output_dir / target_name
     part_path = filepath.with_name(f"{filepath.name}.part")
 
     if filepath.exists() and filepath.stat().st_size > 100:
-        progress.advance(task_id)
         return {"status": "skipped", "name": target_name}
     if filepath.exists():
         filepath.unlink()
@@ -741,15 +739,15 @@ async def download_single(
                         with part_path.open("wb") as handle:
                             async for chunk in resp.content.iter_chunked(256 * 1024):
                                 handle.write(chunk)
-                                written += len(chunk)
+                                chunk_size = len(chunk)
+                                written += chunk_size
+                                progress.advance(task_id, chunk_size)
                         if written <= 100:
                             raise ValueError("Downloaded file is unexpectedly small")
 
                         part_path.replace(filepath)
-                        progress.advance(task_id)
                         return {"status": "downloaded", "name": target_name}
                     if resp.status in {401, 403, 404}:
-                        progress.advance(task_id)
                         return {
                             "status": "failed",
                             "name": target_name,
@@ -769,14 +767,12 @@ async def download_single(
             if attempt < max_retries - 1:
                 await asyncio.sleep(RETRY_DELAY * (attempt + 1))
             else:
-                progress.advance(task_id)
                 return {
                     "status": "failed",
                     "name": target_name,
                     "error": str(exc) or exc.__class__.__name__,
                 }
 
-    progress.advance(task_id)
     return {"status": "failed", "name": target_name, "error": "Retry limit reached"}
 
 
@@ -847,7 +843,8 @@ async def download_all(
             TimeRemainingColumn(),
             console=console,
         ) as progress:
-            task_id = progress.add_task("Downloading", total=total)
+            task_total = total_size if total_size > 0 else None
+            task_id = progress.add_task("Downloading", total=task_total)
 
             tasks = [
                 download_single(

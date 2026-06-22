@@ -13,8 +13,8 @@ class DummyProgress:
     def __init__(self):
         self.advanced = 0
 
-    def advance(self, _task_id):
-        self.advanced += 1
+    def advance(self, _task_id, amount=1):
+        self.advanced += amount
 
 
 class FakeContent:
@@ -100,7 +100,8 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
     async def test_streams_and_finalizes_download(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
-            session = FakeSession(FakeResponse(body=b"\xff\xd8" + b"x" * 200))
+            body = b"\xff\xd8" + b"x" * 200
+            session = FakeSession(FakeResponse(body=body))
             progress = DummyProgress()
             result = await app.download_single(
                 session=session,
@@ -117,7 +118,7 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["status"], "downloaded")
             self.assertTrue((output / "image.jpg").exists())
             self.assertFalse((output / "image.jpg.part").exists())
-            self.assertEqual(progress.advanced, 1)
+            self.assertEqual(progress.advanced, len(body))
 
     async def test_resume_skips_existing_target(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -139,6 +140,7 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(result["status"], "skipped")
             self.assertEqual(session.calls, 0)
+            self.assertEqual(progress.advanced, 0)
 
 
 if __name__ == "__main__":
